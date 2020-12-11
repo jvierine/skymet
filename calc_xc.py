@@ -24,8 +24,8 @@ def remove_ionosonde(d):
         d[i,:,bad_idx]=0.0
     return(d)
 
-def analyze_file(fname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/bolide_20201204/sod_mr/raw.sodankyla.5fca359e",
-                 odir="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/bolide_20201204/sod_mr/xc4",
+def analyze_file(fname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/mr_trails/raw.sodankyla.5fc9d2a8",
+                 odir="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/mr_trails/xc",
                  rem_ionosonde=True,
                  plot_coherence=False,
                  plot_snr=True,
@@ -52,7 +52,7 @@ def analyze_file(fname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/bolide_202
     wf=ss.hann(n_time)
     
     freqs=n.fft.fftshift(n.fft.fftfreq(d.shape[2],d=r.IPP*r.n_integrations))
-    vels=freqs*3e8/2.0/36.9e6
+    vels=freqs*c.c/2.0/36.9e6
     ranges=r.deltaR*n.arange(d.shape[1])+r.range_offset
     ipp_range=r.IPP*c.c/2.0/1e3
     

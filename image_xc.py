@@ -73,24 +73,29 @@ def find_ds(m_phase_diffs,a):
     I[x,y]=1.0
     return(a.dcoss_x[x],a.dcoss_y[y],a.az[x,y],a.el[x,y],I)
 
+#68.25407756526351,
+#24.23106261125355,
+#300000,
+#=300000,
 def xc2img(fname="r1s/rd-1529980785.h5",
            odir="./r1s/",
            obs_lat=67.365524,
            obs_lon=26.637495,
-           map_lat=68.25407756526351, 
-           map_lon=24.23106261125355,
+           map_lat=68.0,
+           map_lon=26.0,
            obs_h=500.0,
            dB_thresh=5.0,
-           alias_num=2.0,
+           alias_num=1.0,
            plot_map=True,
-           plot_latlongh=False,
-           plot_direction_cosines=False,
-           map_width=300000,
-           map_height=300000,
+           plot_latlongh=True,
+           plot_direction_cosines=True,
+           map_width=300e3,
+           map_height=300e3,
            gc_len=5,
            f_smooth=3,
+           height_color=True,
            N=400,
-           t0=1607088600.0):
+           t0=0.0):
     
     h=h5py.File(fname,"r")
     if h["t0"].value < t0:
@@ -138,6 +143,8 @@ def xc2img(fname="r1s/rd-1529980785.h5",
     noise_floor=n.nanmedian(dB)
     dB=dB-noise_floor
     dB[0:gc_len,:]=0.0
+    for ri in range(dB.shape[0]):
+        dB[ri,:]=dB[ri,:]-n.median(dB[ri,:])
 
 #    plt.pcolormesh(dB)
 #    plt.colorbar()
@@ -194,6 +201,18 @@ def xc2img(fname="r1s/rd-1529980785.h5",
     plats=n.array(plats)
     phgts=n.array(phgts)    
     pp=n.array(pp)
+    pv=n.array(pv)
+    
+    ecefs=jcoord.geodetic2ecef(plats, plons, phgts)
+    ho=h5py.File("%s/points-%d.h5"%(odir,h["t0"].value),"w")
+    ho["ecef_m"]=ecefs
+    ho["lon_deg"]=plons
+    ho["lat_deg"]=plats
+    ho["height_km"]=phgts/1e3
+    ho["SNR_dB"]=pp
+    ho["dop_vel"]=pv
+    ho["t0"]=h["t0"].value
+    ho.close()
 
     if plot_map:
         # setup Lambert Conformal basemap.False68.29911309985064, 23.3381106574698
@@ -203,23 +222,37 @@ def xc2img(fname="r1s/rd-1529980785.h5",
                     resolution='i',
                     lat_0=map_lat,
                     lon_0=map_lon)
-        xlat,ylon=m(plons,plats)
         # draw coastlines.
         m.drawmapboundary(fill_color="black")
-        m.drawcoastlines(color="white")
+        try:
+            m.drawcoastlines(color="white")
+        except:
+            print("no coastlines")
         m.drawcountries(color="white")
         parallels = n.arange(0.,81,1.)
         # labels = [left,right,top,bottom]
         m.drawparallels(parallels,labels=[True,False,False,False],color="white")
         meridians = n.arange(10.,351.,2.)
         m.drawmeridians(meridians,labels=[False,False,False,True],color="white")
+        print("got here")
         oidx=n.argsort(pp)
-        m.scatter(xlat[oidx],ylon[oidx],c=pp[oidx],s=1.0,marker="o",vmin=dB_thresh,vmax=40.0)
+        if len(pp)>0:
+            xlat,ylon=m(plons,plats)
+            
+            #            
+            if height_color:
+                m.scatter(xlat[oidx],ylon[oidx],c=phgts[oidx]/1e3,s=1.0,marker="o",vmin=80,vmax=105)
+                cb=plt.colorbar()
+                cb.set_label("Height (km)")
+            else:
+                m.scatter(xlat[oidx],ylon[oidx],c=pp[oidx],s=1.0,marker="o",vmin=dB_thresh,vmax=40.0)
+                cb=plt.colorbar()
+                cb.set_label("SNR (dB)")                
+                
+            
         plt.title(stuffr.unix2datestr(h["t0"].value))
-        cb=plt.colorbar()
-        cb.set_label("SNR (dB)")
         plt.tight_layout()
-        plt.savefig("%s/img-%d.png"%(odir,h["t0"].value))
+        plt.savefig("%s/map-%d.png"%(odir,h["t0"].value))
         plt.close()
         plt.clf()
 
@@ -229,21 +262,29 @@ def xc2img(fname="r1s/rd-1529980785.h5",
             plt.scatter(plats[oidx],phgts[oidx]/1e3,c=pp[oidx],vmin=0,vmax=40.0)
             plt.colorbar()
             plt.xlabel("Latitude (deg)")
-            plt.ylabel("Height (km)")            
+            plt.ylabel("Height (km)")
+            plt.xlim([67.5,68.2])
+            plt.ylim([80,110.0]) 
             plt.subplot(122)
             plt.scatter(plons[oidx],phgts[oidx]/1e3,c=pp[oidx],vmin=0,vmax=40.0)
             plt.colorbar()
+            plt.xlim([24.5,26.])
+            plt.ylim([80,110.0]) 
             plt.xlabel("Longitude (deg)")
-            plt.ylabel("Height (km)")            
-            plt.show()
+            plt.ylabel("Height (km)")
+            plt.tight_layout()
+            plt.savefig("%s/points-%d.png"%(odir,h["t0"].value))
+            plt.close()
+
         
     if plot_direction_cosines:
+        oidx=n.argsort(pp)
         fig=plt.figure()
-        plt.style.use('dark_background')
+#        plt.style.use('dark_background')
         phi=n.linspace(0,2*n.pi,num=500)
-        plt.scatter(dcx,dcy,c=pv,vmin=-150,vmax=150,edgecolors="none")
+        plt.scatter(-dcx[oidx],-dcy[oidx],c=pv[oidx],vmin=-50,vmax=50,edgecolors="none",cmap="Spectral")
         plt.colorbar()    
-        plt.plot(n.cos(phi),n.sin(phi),color="white")
+        plt.plot(n.cos(phi),n.sin(phi),color="black")
         plt.xlim([-1.1,1.1])
         plt.ylim([-1.1,1.1])    
         plt.title(stuffr.unix2datestr(h["t0"].value))
@@ -252,11 +293,11 @@ def xc2img(fname="r1s/rd-1529980785.h5",
         plt.close()
 
         fig=plt.figure()
-        plt.style.use('dark_background')
+ #       plt.style.use('dark_background')
         
-        plt.scatter(dcx,dcy,c=10.0*n.log10(pp),vmin=0,vmax=20,edgecolors="none")
+        plt.scatter(-dcx[oidx],-dcy[oidx],c=pp[oidx],vmin=0,vmax=40,edgecolors="none")
         plt.colorbar()    
-        plt.plot(n.cos(phi),n.sin(phi),color="white")    
+        plt.plot(n.cos(phi),n.sin(phi),color="black")    
         plt.xlim([-1.1,1.1])
         plt.ylim([-1.1,1.1])    
         plt.title(stuffr.unix2datestr(h["t0"].value))    
@@ -265,16 +306,73 @@ def xc2img(fname="r1s/rd-1529980785.h5",
 
     h.close()
 
-def image_files(dirname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/bolide_20201204/sod_mr/xc4"):
+def image_files(dirname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/mr_trails/xc"):
     """
     Go through all averaged cross-correlation-range-doppler files.
     """
     fl=glob.glob("%s/rd*.h5"%(dirname))
     fl.sort()
-
     for fi in range(comm.rank,len(fl),comm.size):
         f=fl[fi]
         xc2img(fname=f,odir=dirname)
         
+if __name__ == "__main2__":
+
+    dirname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/mr_trails/xc"
+    map_lat=68.25407756526351
+    map_lon=24.23106261125355
+    map_width=300e3
+    map_height=300e3
+    t0=1607088618.0
+    fl=glob.glob("%s/rd*.h5"%(dirname))
+    fl.sort()
+    for fi in range(comm.rank,len(fl),comm.size):
+        f=fl[fi]
+        xc2img(fname=f,
+               odir=dirname,
+               obs_lat=67.365524,
+               obs_lon=26.637495,
+               map_lat=map_lat,
+               map_lon=map_lon,
+               obs_h=500.0,
+               dB_thresh=5.0,
+               alias_num=2.0,
+               plot_map=True,
+               plot_latlongh=True,
+               plot_direction_cosines=True,
+               map_width=map_width,
+               map_height=map_height,
+               gc_len=5,
+               f_smooth=3,
+               N=400,
+               t0=t0)
 if __name__ == "__main__":
-    image_files(dirname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/bolide_20201204/sod_mr/xc4")
+#    image_files(dirname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/mr_trails/xc")
+    dirname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/mr_trails/xc"
+    map_lat=67.75
+    map_lon=25.0
+    map_width=150e3
+    map_height=150e3
+    t0=1607062684.0
+    fl=glob.glob("%s/rd*.h5"%(dirname))
+    fl.sort()
+    for fi in range(comm.rank,len(fl),comm.size):
+        f=fl[fi]
+        xc2img(fname=f,
+               odir=dirname,
+               obs_lat=67.365524,
+               obs_lon=26.637495,
+               map_lat=map_lat,
+               map_lon=map_lon,
+               obs_h=500.0,
+               dB_thresh=5.0,
+               alias_num=1.0,
+               plot_map=True,
+               plot_latlongh=True,
+               plot_direction_cosines=True,
+               map_width=map_width,
+               map_height=map_height,
+               gc_len=5,
+               f_smooth=3,
+               N=400,
+               t0=t0)
