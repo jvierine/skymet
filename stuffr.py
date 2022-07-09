@@ -162,7 +162,10 @@ def dirname2unix(dirn):
     return(date2unix(int(r.group(1)),int(r.group(2)),int(r.group(3)),int(r.group(4)),int(r.group(5)),int(r.group(6))))
 
 def unix2datestr(x):
-    return(unix2date(x).strftime('%Y-%m-%d %H:%M:%S'))
+    d0=numpy.floor(x/60.0)
+    frac=x-d0*60.0
+    stri=unix2date(x).strftime('%Y-%m-%d %H:%M:')
+    return("%s%02.2f"%(stri,frac))
 
 def compr(x,fr=0.001):
     sh = x.shape

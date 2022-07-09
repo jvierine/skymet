@@ -10,13 +10,15 @@ import scipy.signal as ss
 import re
 import os
 
-def remove_ionosonde(d):
-    for i in range(d.shape[0]):
-        med_pwr=n.median(n.abs(d[i,:,:]),axis=0)
-        avg_noise=n.median(med_pwr)
-        std_est=n.median(n.abs(med_pwr-avg_noise))
-        bad_idx=n.where(med_pwr-avg_noise > 5.0*std_est)[0]
-        d[i,:,bad_idx]=0.0
+def remove_ionosonde(d,
+                     t,
+                     tbad=[0.8,1.525,2.35,3.4,4.68,6.45,8.9,12.6],
+                     ts=0.1):
+    w = n.zeros(len(t),dtype=n.float32)
+    for t0 in tbad:
+        w+=n.exp(-(t-t0)**2.0/(2.0*ts**2.0))
+    for ti in range(d.shape[2]):
+        d[:,:,ti]=d[:,:,ti]*(1.0-w[ti])
     return(d)
 
 def snr_r(S):
@@ -77,6 +79,8 @@ def rti_coh_incoh(fname="/data3/SLICE_RAW/MRRAW_20171220/raw.sodankyla.5a39ae21"
                   at1=None,
                   max_vel=1000,
                   mean_rem=False,
+                  rem_iono=True,
+                  n_incoh=10,
                   clean_range=False,
                   ofname="out.h5"):
 
@@ -95,8 +99,6 @@ def rti_coh_incoh(fname="/data3/SLICE_RAW/MRRAW_20171220/raw.sodankyla.5a39ae21"
     print(n_time)
     wf=ss.hann(n_time)
     freqs=n.fft.fftshift(n.fft.fftfreq(d.shape[2],d=r.IPP*r.n_integrations))
-    # mono-static Doppler
-    # v = c*df/2.0/f
     vels=freqs*c.c/2.0/(r.frequency*1e6)
     bidx=n.where(n.abs(vels)>max_vel)[0]
 
@@ -106,87 +108,43 @@ def rti_coh_incoh(fname="/data3/SLICE_RAW/MRRAW_20171220/raw.sodankyla.5a39ae21"
     
     t0=r.time
     eff_prf=r.PRF/r.n_integrations
-    print(eff_prf)
     dtau=(1.0/eff_prf)*d.shape[2]
     r=read_ud3.UD3_Reader(fname,t_mess=t_mess)
-    shape=n.copy(d.shape)
-    print(d.shape)
 
-    n_c=r.n_chunks-1
-
-    tvec_all=n.arange(n_c)*dtau + r.time
-    if t0 != None:
-        gidx=n.where( (tvec_all > at0) & (tvec_all < at1))[0]
-    else:
-        gidx=n.arange(n_c)
-    n_tv=len(gidx)
-
-        
-    RTI=n.zeros([n_tv,n_range],dtype=n.float32)
-    DOP=n.zeros([n_tv,n_range],dtype=n.float32)
-        
+    RTI=[]
+    DOP=[]
     tvec=[]
-    oidx=0
-    noises=[]
-    for k in range(n_c):
-        print("%d/%d"%(k,n_c))
-        d=r.get_next_chunk()
+    n_avg=0
+    S=n.zeros([d.shape[1],d.shape[2]],dtype=n.float32)
+    for k in range(r.n_chunks):
         
-        if k in gidx:
-            S=n.zeros([d.shape[1],d.shape[2]])
-            R=n.zeros([d.shape[1],d.shape[2]])
-            noise=n.zeros(d.shape[1])
-            print(stuffr.unix2datestr(r.time + dtau*k))
-            tvec.append(r.time + dtau*k)
+        print("%d/%d"%(k,r.n_chunks))
+        d=r.get_next_chunk()
+        chunk_t0=r.time+dtau*k
+        
+        if chunk_t0 > at0:
             
-            for i in range(n_chan):                
-                #                if i == 0 and True:
-                R+=n.abs(d[i,:,:])**2.0
+            
+            if rem_iono:
+                chunk_t=n.mod(n.linspace(0,dtau,num=d.shape[2])+chunk_t0,60.0)
+                d=remove_ionosonde(d,chunk_t)
+            for i in range(n_chan):
+                if i == 0 and False:
+                    plt.pcolormesh(chunk_t,n.arange(d.shape[1]),n.abs(d[i,:,:]),vmax=1024)
+                    plt.title(stuffr.unix2datestr(r.time + dtau*k))
+                    plt.colorbar()
+                    plt.show()
 
                 for j in range(n_range):
-                    
                     z=d[i,j,:]
-                    
                     if mean_rem:
                         z=z-n.mean(z)
-                        
-                    S[j,:] += n.fft.fftshift(n.abs(n.fft.fft(wf*z))**2.0)
-            dBR=10.0*n.log10(R)
-            nf=n.nanmedian(dBR)
-            plt.pcolormesh(dBR,vmin=nf,vmax=nf+20)
-            plt.title(stuffr.unix2datestr(r.time + dtau*k))
-            plt.colorbar()
-            plt.show()
-
+                    S[j,:]+=n.fft.fftshift(n.abs(n.fft.fft(wf*z))**2.0)
             if clean_range:
                 S=clean_rti(S)
             else:
                 S=snr_0(S)
-            for j in range(n_range):
-                S[j,bidx]=0.0                
-                noise[j]=n.median(S[j,:])
-                RTI[oidx,j]=n.max(S[j,:])
-                DOP[oidx,j]=vels[n.argmax(S[j,:])]
-                
-            hos=h5py.File("%s/snr-%d.h5"%(dname,r.time+dtau*k),"w")
-            hos["t0"]=r.time+dtau*k
-            hos["ranges"]=ranges
-            hos["vels"]=vels
-            hos["S"]=S
-            hos.close()
-            noises.append(noise)   
-            if False:
-                S[S<=0]=1e-3
-                plt.pcolormesh(vels,ranges,10.0*n.log10(S),vmin=0,vmax=40)
-                plt.title(stuffr.unix2datestr(r.time+dtau*k))
-                plt.xlim([-200,200])
-                plt.colorbar()
-                plt.tight_layout()
-                plt.savefig("%s/snr-%d.png"%(dname,r.time+dtau*k))
-                plt.clf()
-                plt.close()
-                
-            oidx+=1
+
     tvec=n.array(tvec)
     
     ho=h5py.File(ofname,"w")
@@ -194,32 +152,19 @@ def rti_coh_incoh(fname="/data3/SLICE_RAW/MRRAW_20171220/raw.sodankyla.5a39ae21"
     ho["ranges"]=ranges
     ho["RTI"]=RTI
     ho["DOP"]=DOP
-    ho["noise"]=n.array(noises)
-    ho["shape"]=shape
     ho.close()
     
     return(tvec,ranges,RTI,DOP)
 
 if __name__ == "__main__":
-    head=True
-    if head:
-        tvec,ranges,RTI,DOP=rti_coh_incoh("/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/bolide_20201204/and_mr/raw.andenes.20201204_132547.ud3",
-                                          alias_num=1,
-                                          at0=8600+1.60708e9+35,
-                                          at1=8680+1.60708e9,                                      
-                                          t_mess=0.06,
-                                          mean_rem=True,
-                                          ofname="and-trail-0.06s.h5")
-        
-        tvec,ranges,RTI,DOP=rti_coh_incoh("/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/bolide_20201204/sod_mr/raw.sodankyla.5fca359e",
-                                          alias_num=2,
-                                          at0=34+1.6070886e9,
-                                          at1=48+1.6070886e9,
-                                          t_mess=0.06,
-                                          ofname="out-0.06s.h5")
-
-    
     if False:
+#        tvec,ranges,RTI,DOP=rti_coh_incoh("/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/bolide_20201204/and_mr/raw.andenes.20201204_132547.ud3",
+ #                                         alias_num=1,
+  #                                        at0=8600+1.60708e9,
+   #                                       at1=8680+1.60708e9,                                      
+    #                                      t_mess=0.2,
+     #                                     mean_rem=True,
+      #                                    ofname="and-trail-0.2s.h5")
         tvec,ranges,RTI,DOP=rti_coh_incoh("/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/bolide_20201204/and_mr/raw.andenes.20201204_132547.ud3",
                                           alias_num=1,
                                           at0=8600+1.60708e9,
@@ -241,12 +186,12 @@ if __name__ == "__main__":
        #                               at1=9050+1.60708e9,                                      
         #                              t_mess=1.0,
          #                             ofname="sod-trail-1s.h5")
-    if False:
+    if True:
         tvec,ranges,RTI,DOP=rti_coh_incoh("/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/bolide_20201204/sod_mr/raw.sodankyla.5fca359e",
                                           alias_num=2,
                                           at0=8600+1.60708e9,
                                           at1=9050+1.60708e9,                                      
-                                          t_mess=3.0,
+                                          t_mess=0.2,
                                           mean_rem=False,
                                           clean_range=False,
                                           ofname="sod-trail-0.2s.h5")
@@ -259,6 +204,24 @@ if __name__ == "__main__":
 #    tvec,ranges,RTI,DOP=rti_coh_incoh("/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/bolide_20201204/sod_mr/raw.sodankyla.5fca359e",
  #   /media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/bolide_20201204/and_mr/raw.andenes.20201204_132547.ud3
 
- 
+#    tvec,ranges,RTI,DOP=rti_coh_incoh("/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/bolide_20201204/sod_mr/raw.sodankyla.5fca359e",
+ #                                     alias_num=2,
+  #                                    at0=34+1.6070886e9,
+   #                                   at1=48+1.6070886e9,
+    #                                  t_mess=0.06,
+     #                                 ofname="out-0.06s.h5")
 
     
+    print(RTI.shape)
+    dB=n.transpose(10.0*n.log10(RTI))
+    nfloor=n.nanmedian(dB)
+    plt.pcolormesh(tvec,ranges,dB,cmap="plasma",vmin=nfloor,vmax=nfloor+20.0)
+    plt.xlabel("Time (s)")
+    plt.ylabel("Range (km)")
+    plt.colorbar()
+    plt.show()
+    plt.pcolormesh(tvec,ranges,n.transpose(DOP),cmap="seismic",vmin=-100,vmax=100.0)
+    plt.xlabel("Time (s)")
+    plt.ylabel("Range (km)")    
+    plt.colorbar()
+    plt.show()

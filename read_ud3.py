@@ -206,7 +206,7 @@ class UD3_Reader(object):
         [chan, range, time]"""
         temp = numpy.fromfile(
             self.in_file,
-            dtype=numpy.int16,
+            dtype="<i2",
             count=self.n_points_chunk * 2,
             sep='')
         if len(temp) != self.n_points_chunk*2:

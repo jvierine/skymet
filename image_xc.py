@@ -46,8 +46,8 @@ class aoa_find:
             self.phase_diffs.append(2.0*n.pi*self.dsx*self.u[i]/self.lam+2.0*n.pi*self.dsy*self.v[i]/self.lam)
                         
 
-
-def find_ds(m_phase_diffs,a):
+def find_ds(X,a):
+#def find_ds(m_phase_diffs,a):    
     """
     find direction of arrival using a matched filter (beamforming)
     """
@@ -55,7 +55,8 @@ def find_ds(m_phase_diffs,a):
     pds[:,:]=0.0
 
     for txi in range(len(a.u)):
-        pds+=n.exp(1j*a.phase_diffs[txi])*n.conj(m_phase_diffs[txi])
+#        pds+=n.exp(1j*a.phase_diffs[txi])*n.conj(m_phase_diffs[txi])
+        pds+=n.exp(1j*a.phase_diffs[txi])*n.conj(X[txi])
 
     pds[a.bad_idx]=0.0
     mi=n.argmax(n.abs(pds)**2.0)
@@ -64,7 +65,7 @@ def find_ds(m_phase_diffs,a):
     plott=False
     if plott:
         plt.pcolormesh(n.abs(pds))
-        plt.plot(x,y,"x",color="white")
+        plt.plot(y,x,"x",color="black")
         plt.xlabel("Direction cosine (x)")
         plt.ylabel("Direction cosine (y)")        
         plt.colorbar()
@@ -92,7 +93,7 @@ def xc2img(fname="r1s/rd-1529980785.h5",
            map_width=300e3,
            map_height=300e3,
            gc_len=5,
-           f_smooth=3,
+           f_smooth=0,
            height_color=True,
            N=400,
            t0=0.0):
@@ -118,11 +119,11 @@ def xc2img(fname="r1s/rd-1529980785.h5",
 
     # cross-correlation-range-doppler data cube
     X=n.copy(h["X"].value)
-    if f_smooth > 1:
-        for ai in range(X.shape[0]):
-            for ri in range(X.shape[1]):
-                row=n.convolve(n.repeat(1.0/f_smooth,f_smooth),X[ai,ri,:],mode="same")
-                X[ai,ri,:]=row
+#    if f_smooth > 1:
+#        for ai in range(X.shape[0]):
+#            for ri in range(X.shape[1]):
+#                row=n.convolve(n.repeat(1.0/f_smooth,f_smooth),X[ai,ri,:],mode="same")
+#                X[ai,ri,:]=row
 
     # calculate antenna position vectors
     u=[]
@@ -130,6 +131,7 @@ def xc2img(fname="r1s/rd-1529980785.h5",
     for i in range(aidx.shape[0]):
         u.append(rx_x[aidx[i,0]]-rx_x[aidx[i,1]])
         v.append(rx_y[aidx[i,0]]-rx_y[aidx[i,1]])
+        
     u=n.array(u)
     v=n.array(v)
 
@@ -143,6 +145,7 @@ def xc2img(fname="r1s/rd-1529980785.h5",
     noise_floor=n.nanmedian(dB)
     dB=dB-noise_floor
     dB[0:gc_len,:]=0.0
+    
     for ri in range(dB.shape[0]):
         dB[ri,:]=dB[ri,:]-n.median(dB[ri,:])
 
@@ -152,7 +155,7 @@ def xc2img(fname="r1s/rd-1529980785.h5",
     # find pixels to image where snr is sufficiently high
     gidx=n.where(dB.flatten() > dB_thresh)[0]
     gidx=n.unravel_index(gidx,dB.shape)
-
+    
     # number of direction cosines to sample in the east and west direction
     # N^2 directions in search space
     a=aoa_find(N,u,v)
@@ -166,15 +169,18 @@ def xc2img(fname="r1s/rd-1529980785.h5",
     plats=[]
     plons=[]
     phgts=[]        
-    pp=[]            
+    pp=[]
+    
     for i in range(len(gidx[0])):
+        
         xi=gidx[0][i]
         yi=gidx[1][i]    
     
         print("%s %d/%d dB %1.2f"%(stuffr.unix2datestr(h["t0"].value),i,len(gidx[0]),dB[xi,yi]))
 
         m_phase_diffs=n.exp(1j*n.angle(X[:,xi,yi]))
-        dcosx,dcosy,az,el,I0=find_ds(m_phase_diffs,a)
+#        dcosx,dcosy,az,el,I0=find_ds(m_phase_diffs,a)
+        dcosx,dcosy,az,el,I0=find_ds(X[:,xi,yi],a)        
         r0 = range_gates[xi]*1e3
 
         # translate to lat long height
@@ -241,7 +247,7 @@ def xc2img(fname="r1s/rd-1529980785.h5",
             
             #            
             if height_color:
-                m.scatter(xlat[oidx],ylon[oidx],c=phgts[oidx]/1e3,s=1.0,marker="o",vmin=80,vmax=105)
+                m.scatter(xlat[oidx],ylon[oidx],c=pv[oidx],s=1.0,marker="o",vmin=-100,vmax=100,cmap="seismic")
                 cb=plt.colorbar()
                 cb.set_label("Height (km)")
             else:
@@ -316,63 +322,54 @@ def image_files(dirname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/mr_trails
         f=fl[fi]
         xc2img(fname=f,odir=dirname)
         
-if __name__ == "__main2__":
+def do_images(dirname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/mr_trails/xc",
+              obs_lat=67.365524,
+              obs_lon=26.637495,
+              map_lat=67.75,              
+              map_lon=25.0,
+              alias_num=1.0,
+              map_width=150e3,
+              map_height=150e3,
+              t0=1607062684.0):
 
-    dirname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/mr_trails/xc"
-    map_lat=68.25407756526351
-    map_lon=24.23106261125355
-    map_width=300e3
-    map_height=300e3
-    t0=1607088618.0
     fl=glob.glob("%s/rd*.h5"%(dirname))
     fl.sort()
     for fi in range(comm.rank,len(fl),comm.size):
         f=fl[fi]
         xc2img(fname=f,
                odir=dirname,
-               obs_lat=67.365524,
-               obs_lon=26.637495,
+               obs_lat=obs_lat,
+               obs_lon=obs_lon,
                map_lat=map_lat,
                map_lon=map_lon,
                obs_h=500.0,
                dB_thresh=5.0,
-               alias_num=2.0,
+               alias_num=alias_num,
                plot_map=True,
                plot_latlongh=True,
                plot_direction_cosines=True,
                map_width=map_width,
                map_height=map_height,
                gc_len=5,
-               f_smooth=3,
                N=400,
                t0=t0)
-if __name__ == "__main__":
-#    image_files(dirname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/mr_trails/xc")
-    dirname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/mr_trails/xc"
-    map_lat=67.75
-    map_lon=25.0
-    map_width=150e3
-    map_height=150e3
-    t0=1607062684.0
-    fl=glob.glob("%s/rd*.h5"%(dirname))
-    fl.sort()
-    for fi in range(comm.rank,len(fl),comm.size):
-        f=fl[fi]
-        xc2img(fname=f,
-               odir=dirname,
-               obs_lat=67.365524,
-               obs_lon=26.637495,
-               map_lat=map_lat,
-               map_lon=map_lon,
-               obs_h=500.0,
-               dB_thresh=5.0,
-               alias_num=1.0,
-               plot_map=True,
-               plot_latlongh=True,
-               plot_direction_cosines=True,
-               map_width=map_width,
-               map_height=map_height,
-               gc_len=5,
-               f_smooth=3,
-               N=400,
-               t0=t0)
+
+
+#do_images(dirname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/bolide_20201204/sod_mr/xc5")
+    
+do_images(dirname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/bolide_20201204/sod_mr/xc6",
+          map_lat=68.25407756526351,
+          map_lon=24.23106261125355,
+          map_width=300e3,
+          map_height=300e3,
+          alias_num=2.0,
+          t0=1607088618.0)
+#do_images(dirname="/media/j/4f5bab17-2890-4bb0-aaa8-ea42d65fdac8/bolide_20201204/and_mr/xc",
+#          obs_lat=69.29807478964716,
+#          obs_lon=16.043168307014426,
+#          map_lat=68.25407756526351,
+#          map_lon=24.23106261125355,
+#          map_width=300e3,
+#          map_height=300e3,
+#          alias_num=1.0,
+#          t0=1607088618.0)
