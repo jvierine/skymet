@@ -55,4 +55,7 @@ def rtdi(fname,t_mess=10,n_int=12):
 
 
 # edit this to point to the filename that you want to process
-rtdi("raw.bdumr.20250723_090938.ud3")
+file_list=glob.glob("raw*.ud3")
+file_list.sort()
+for f in file_list:
+    rtdi(f)
