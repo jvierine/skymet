@@ -43,14 +43,16 @@ def rtdi(fname,t_mess=10,n_int=12):
         plt.title("Range-Doppler Intensity\n%s"%(n.datetime64(int(tdata),"s")))
         plt.tight_layout()
         plt.savefig("rtdi-%06d.png"%(int(tdata)))
+        print("writing to file: rtdi-%06d.png"%(int(tdata)))
+
         plt.clf()
         plt.close()
 #        plt.show()
-        print(n_chan)
-        print(n_range)
-        print(n_time)
+#        print(n_chan)
+ #       print(n_range)
+  #      print(n_time)
 
 
 
-
+# edit this to point to the filename that you want to process
 rtdi("raw.bdumr.20250723_090938.ud3")
